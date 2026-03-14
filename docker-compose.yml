@@ -1,0 +1,13 @@
+services:
+  frnow-web:
+    build: .
+    container_name: frnow-web
+    restart: unless-stopped
+    ports:
+      - "3010:3000"
+
+    volumes:
+      - ~/apps/frnow/data:/data
+
+    environment:
+      - DB_PATH=/data/frnow.db
