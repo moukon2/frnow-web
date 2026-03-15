@@ -1,12 +1,6 @@
 import "./globals.css";
-
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
-
-export const metadata = {
-  title: "FRNow",
-  description: "Funding Rate × Open Interest alerts",
-};
+import Link from "next/link";
+import SiteNav from "@/components/SiteNav";
 
 export default function RootLayout({
   children,
@@ -17,13 +11,22 @@ export default function RootLayout({
     <html lang="ja">
       <body className="bg-black text-white">
 
-        <Navbar />
+        <header className="sticky top-0 z-50 border-b border-white/10 bg-black/80 backdrop-blur">
+          <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 md:px-6">
 
-        <main className="min-h-screen">
-          {children}
-        </main>
+            <Link
+              href="/"
+              className="text-base font-semibold tracking-tight text-white"
+            >
+              FRNow
+            </Link>
 
-        <Footer />
+            <SiteNav />
+
+          </div>
+        </header>
+
+        <main>{children}</main>
 
       </body>
     </html>

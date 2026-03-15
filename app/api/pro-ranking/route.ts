@@ -1,12 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getApiBase, getBackendToken } from "@/lib/server-auth";
+import {
+  getApiBase,
+  getBackendToken,
+  getSessionUser,
+  hasRequiredPlan,
+} from "@/lib/server-auth";
 
 export async function GET(request: NextRequest) {
   try {
     const token = await getBackendToken();
-
     if (!token) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const sessionUser = await getSessionUser();
+    if (!sessionUser.loggedIn) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    if (!hasRequiredPlan(sessionUser.plan, ["pro", "advance"])) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
     const ex = request.nextUrl.searchParams.get("ex") || "";
@@ -31,7 +44,8 @@ export async function GET(request: NextRequest) {
       status: upstream.status,
       headers: {
         "Content-Type":
-          upstream.headers.get("Content-Type") || "application/json; charset=utf-8",
+          upstream.headers.get("Content-Type") ||
+          "application/json; charset=utf-8",
         "Cache-Control": "no-store",
       },
     });

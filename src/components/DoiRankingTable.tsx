@@ -1,8 +1,13 @@
-export type RankingRow = {
+export type DoiRow = {
   rank: number;
   symbol: string;
   exchange: string;
-  fr: number;
+  doi: number;
+  absDoi: number;
+  direction: string;
+  fr?: number | null;
+  absFr?: number;
+  combinedScore?: number;
   nextFundingMs?: number | null;
 };
 
@@ -39,21 +44,22 @@ function exchangeBadge(exchange: string) {
   return "border-white/10 bg-white/[0.04] text-white/70";
 }
 
-export default function RankingTable({ data }: { data: RankingRow[] }) {
+export default function DoiRankingTable({ data }: { data: DoiRow[] }) {
   if (!data.length) {
     return (
       <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-sm text-white/55">
-        表示できるランキングデータがありません。
+        表示できる ΔOI データがありません。
       </div>
     );
   }
 
   return (
     <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
-      <div className="grid grid-cols-[56px_1.3fr_130px_120px_90px] gap-3 border-b border-white/10 bg-white/[0.03] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+      <div className="grid grid-cols-[56px_1.3fr_130px_120px_110px_90px] gap-3 border-b border-white/10 bg-white/[0.03] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
         <div>Rank</div>
         <div>Symbol</div>
         <div>Exchange</div>
+        <div className="text-right">ΔOI</div>
         <div className="text-right">FR</div>
         <div className="text-right">Next</div>
       </div>
@@ -62,7 +68,7 @@ export default function RankingTable({ data }: { data: RankingRow[] }) {
         {data.map((row) => (
           <div
             key={`${row.rank}-${row.symbol}-${row.exchange}`}
-            className="grid grid-cols-[56px_1.3fr_130px_120px_90px] gap-3 px-4 py-3 text-sm"
+            className="grid grid-cols-[56px_1.3fr_130px_120px_110px_90px] gap-3 px-4 py-3 text-sm"
           >
             <div className="font-semibold text-white/70">{row.rank}</div>
 
@@ -80,9 +86,23 @@ export default function RankingTable({ data }: { data: RankingRow[] }) {
               </span>
             </div>
 
-            <div className="text-right font-semibold text-cyan-300">
-              {row.fr > 0 ? "+" : ""}
-              {row.fr.toFixed(4)}%
+            <div
+              className={`text-right font-semibold ${
+                row.doi > 0
+                  ? "text-cyan-300"
+                  : row.doi < 0
+                    ? "text-rose-300"
+                    : "text-white/70"
+              }`}
+            >
+              {row.doi > 0 ? "+" : ""}
+              {row.doi.toFixed(3)}%
+            </div>
+
+            <div className="text-right text-white/70">
+              {typeof row.fr === "number"
+                ? `${row.fr > 0 ? "+" : ""}${row.fr.toFixed(4)}%`
+                : "--"}
             </div>
 
             <div className="text-right text-white/60">

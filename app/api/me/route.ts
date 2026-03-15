@@ -41,21 +41,31 @@ function safeNumber(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function buildLoggedOutResponse(): MeResponse {
+  return {
+    loggedIn: false,
+    plan: "public",
+    id: undefined,
+    email: null,
+    billing_status: null,
+    current_period_end_ms: null,
+    stripe_customer_id: null,
+    stripe_subscription_id: null,
+    user: undefined,
+  };
+}
+
 export async function GET() {
   try {
     const token = await getBackendToken();
-
     if (!token) {
-      return NextResponse.json<MeResponse>({
-        loggedIn: false,
-        plan: "public",
-      });
+      return NextResponse.json(buildLoggedOutResponse());
     }
 
     if (process.env.DEV_AUTH_BYPASS === "1") {
       const devPlan = normalizePlan(process.env.DEV_AUTH_PLAN || "advance");
 
-      return NextResponse.json<MeResponse>({
+      return NextResponse.json({
         loggedIn: true,
         plan: devPlan,
         id: "dev-user",
@@ -86,24 +96,22 @@ export async function GET() {
     });
 
     if (upstream.status === 401) {
-      return NextResponse.json<MeResponse>({
-        loggedIn: false,
-        plan: "public",
-      });
+      return NextResponse.json(buildLoggedOutResponse());
     }
 
     if (!upstream.ok) {
-      return NextResponse.json<MeResponse>({
-        loggedIn: false,
-        plan: "public",
+      const text = await upstream.text().catch(() => "");
+      console.error("ME_ROUTE_UPSTREAM_FAIL", {
+        status: upstream.status,
+        body: text,
       });
+      return NextResponse.json(buildLoggedOutResponse());
     }
 
     const data = await upstream.json().catch(() => null);
+    const rawUser = data?.user ?? data ?? {};
 
-    const rawUser = data?.user ?? {};
     const plan = normalizePlan(rawUser?.plan ?? data?.plan);
-
     const id = safeString(rawUser?.id);
     const email = safeString(rawUser?.email);
     const billing_status = safeString(rawUser?.billing_status);
@@ -111,7 +119,7 @@ export async function GET() {
     const stripe_customer_id = safeString(rawUser?.stripe_customer_id);
     const stripe_subscription_id = safeString(rawUser?.stripe_subscription_id);
 
-    return NextResponse.json<MeResponse>({
+    return NextResponse.json({
       loggedIn: true,
       plan,
       id: id ?? undefined,
@@ -129,13 +137,9 @@ export async function GET() {
         stripe_customer_id,
         stripe_subscription_id,
       },
-    });
+    } satisfies MeResponse);
   } catch (error) {
     console.error("ME_ROUTE_ERROR", error);
-
-    return NextResponse.json<MeResponse>({
-      loggedIn: false,
-      plan: "public",
-    });
+    return NextResponse.json(buildLoggedOutResponse());
   }
 }

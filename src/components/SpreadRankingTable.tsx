@@ -11,85 +11,63 @@ type SpreadRow = {
   nextFundingMs?: number | null;
 };
 
-type Props = {
-  data: SpreadRow[];
-  fading?: boolean;
-};
-
-function fmtPct(v: number) {
-  return `${v >= 0 ? "+" : ""}${v.toFixed(4)}%`;
-}
-
-function fmtNext(nextFundingMs?: number | null) {
+function formatCountdown(nextFundingMs?: number | null) {
   if (!nextFundingMs || !Number.isFinite(nextFundingMs)) return "--";
 
-  const diff = Math.max(0, nextFundingMs - Date.now());
-  const totalMin = Math.floor(diff / 1000 / 60);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
+  const diffMs = nextFundingMs - Date.now();
+  if (diffMs <= 0) return "00:00";
 
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  const totalMin = Math.floor(diffMs / 60000);
+  const hh = String(Math.floor(totalMin / 60)).padStart(2, "0");
+  const mm = String(totalMin % 60).padStart(2, "0");
+  return `${hh}:${mm}`;
 }
 
-export default function SpreadRankingTable({ data, fading = false }: Props) {
-  return (
-    <div
-      className={`overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] transition-opacity duration-300 ${
-        fading ? "opacity-70" : "opacity-100"
-      }`}
-    >
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="border-b border-white/10 bg-white/[0.02] text-white/50">
-            <tr>
-              <th className="px-4 py-3 text-left font-medium">#</th>
-              <th className="px-4 py-3 text-left font-medium">Symbol</th>
-              <th className="px-4 py-3 text-left font-medium">FR 1</th>
-              <th className="px-4 py-3 text-left font-medium">FR 2</th>
-              <th className="px-4 py-3 text-left font-medium">Spread</th>
-              <th className="px-4 py-3 text-left font-medium">Abs</th>
-              <th className="px-4 py-3 text-left font-medium">Direction</th>
-              <th className="px-4 py-3 text-left font-medium">Next</th>
-            </tr>
-          </thead>
+export default function SpreadRankingTable({ data }: { data: SpreadRow[] }) {
+  if (!data.length) {
+    return (
+      <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 text-sm text-white/55">
+        表示できる Spread データがありません。
+      </div>
+    );
+  }
 
-          <tbody>
-            {data.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={8}
-                  className="px-4 py-10 text-center text-white/50"
-                >
-                  表示できるスプレッドがありません
-                </td>
-              </tr>
-            ) : (
-              data.map((row) => (
-                <tr
-                  key={`${row.symbol}-${row.exchange1}-${row.exchange2}`}
-                  className="border-b border-white/5 text-white/80"
-                >
-                  <td className="px-4 py-3">{row.rank}</td>
-                  <td className="px-4 py-3 font-medium text-white">{row.symbol}</td>
-                  <td className="px-4 py-3">
-                    <div className="text-white">{row.exchange1.toUpperCase()}</div>
-                    <div className="text-white/60">{fmtPct(row.fr1)}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-white">{row.exchange2.toUpperCase()}</div>
-                    <div className="text-white/60">{fmtPct(row.fr2)}</div>
-                  </td>
-                  <td className="px-4 py-3 font-semibold text-cyan-300">
-                    {fmtPct(row.spread)}
-                  </td>
-                  <td className="px-4 py-3">{fmtPct(row.absSpread)}</td>
-                  <td className="px-4 py-3">{row.direction}</td>
-                  <td className="px-4 py-3">{fmtNext(row.nextFundingMs)}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+  return (
+    <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
+      <div className="grid grid-cols-[56px_1.2fr_120px_120px_120px_90px] gap-3 border-b border-white/10 bg-white/[0.03] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+        <div>Rank</div>
+        <div>Symbol</div>
+        <div className="text-right">FR1</div>
+        <div className="text-right">FR2</div>
+        <div className="text-right">Spread</div>
+        <div className="text-right">Next</div>
+      </div>
+
+      <div className="divide-y divide-white/10">
+        {data.map((row) => (
+          <div
+            key={`${row.rank}-${row.symbol}-${row.exchange1}-${row.exchange2}`}
+            className="grid grid-cols-[56px_1.2fr_120px_120px_120px_90px] gap-3 px-4 py-3 text-sm"
+          >
+            <div className="font-semibold text-white/70">{row.rank}</div>
+            <div className="font-medium text-white">{row.symbol}</div>
+            <div className="text-right text-white/70">
+              {row.fr1 > 0 ? "+" : ""}
+              {row.fr1.toFixed(4)}%
+            </div>
+            <div className="text-right text-white/70">
+              {row.fr2 > 0 ? "+" : ""}
+              {row.fr2.toFixed(4)}%
+            </div>
+            <div className="text-right font-semibold text-cyan-300">
+              {row.spread > 0 ? "+" : ""}
+              {row.spread.toFixed(4)}%
+            </div>
+            <div className="text-right text-white/60">
+              {formatCountdown(row.nextFundingMs)}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

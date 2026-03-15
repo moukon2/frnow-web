@@ -7,8 +7,10 @@ const ADV_PRODUCT_ID = process.env.POLAR_ADV_PRODUCT_ID || "";
 
 type BillingPlan = "public" | "pro" | "advance";
 
-function asObj(v: unknown): Record<string, any> {
-  return v && typeof v === "object" ? (v as Record<string, any>) : {};
+type UnknownRecord = Record<string, unknown>;
+
+function asObj(v: unknown): UnknownRecord {
+  return v && typeof v === "object" ? (v as UnknownRecord) : {};
 }
 
 function asStr(v: unknown): string | null {
@@ -51,76 +53,67 @@ function resolvePlanFromProductId(productId: unknown): BillingPlan {
   return "public";
 }
 
-function extractUserId(data: Record<string, any>): string | null {
+function extractUserId(data: UnknownRecord): string | null {
   return asStr(
     pick(
-      data.metadata?.user_id,
-      data.customer?.external_id,
-      data.customer?.external_customer_id,
+      data.metadata && asObj(data.metadata).user_id,
+      data.customer && asObj(data.customer).external_id,
+      data.customer && asObj(data.customer).external_customer_id,
       data.external_customer_id,
       data.customer_external_id,
-      data.checkout?.metadata?.user_id,
-      data.order?.metadata?.user_id,
+      data.checkout && asObj(data.checkout).metadata
+        ? asObj(asObj(data.checkout).metadata).user_id
+        : null,
+      data.order && asObj(data.order).metadata
+        ? asObj(asObj(data.order).metadata).user_id
+        : null,
     ),
   );
 }
 
-function extractProductId(data: Record<string, any>): string | null {
+function extractProductId(data: UnknownRecord): string | null {
   const direct = asStr(
-    pick(
-      data.product_id,
-      data.product?.id,
-      data.subscription_product_id,
-    ),
+    pick(data.product_id, asObj(data.product).id, data.subscription_product_id),
   );
   if (direct) return direct;
 
   const products = Array.isArray(data.products) ? data.products : [];
   if (products.length > 0) {
     const first = asObj(products[0]);
-    return asStr(pick(first.id, first.product_id, first.product?.id));
+    return asStr(pick(first.id, first.product_id, asObj(first.product).id));
   }
 
   return null;
 }
 
-function extractCustomerId(data: Record<string, any>): string | null {
-  return asStr(
-    pick(
-      data.customer_id,
-      data.customer?.id,
-    ),
-  );
+function extractCustomerId(data: UnknownRecord): string | null {
+  return asStr(pick(data.customer_id, asObj(data.customer).id));
 }
 
-function extractSubscriptionId(data: Record<string, any>): string | null {
-  return asStr(
-    pick(
-      data.subscription_id,
-      data.id,
-      data.subscription?.id,
-    ),
-  );
+function extractSubscriptionId(data: UnknownRecord): string | null {
+  return asStr(pick(data.subscription_id, data.id, asObj(data.subscription).id));
 }
 
-function extractCurrentPeriodEndMs(data: Record<string, any>): number | null {
+function extractCurrentPeriodEndMs(data: UnknownRecord): number | null {
   return asMs(
-    pick(
-      data.current_period_end,
-      data.current_period_end_at,
-      data.ends_at,
-    ),
+    pick(data.current_period_end, data.current_period_end_at, data.ends_at),
   );
 }
 
-async function callBillingUpdate(input: {
+type BillingUpdatePayload = {
   userId: string;
   plan?: BillingPlan;
   billing_status?: string | null;
   current_period_end_ms?: number | null;
   customer_id?: string | null;
   subscription_id?: string | null;
-}) {
+};
+
+async function callBillingUpdate(input: BillingUpdatePayload) {
+  if (!INTERNAL_API_TOKEN) {
+    throw new Error("INTERNAL_API_TOKEN is missing");
+  }
+
   const res = await fetch(`${FRNOW_API_BASE}/internal/billing/update`, {
     method: "POST",
     headers: {
@@ -137,6 +130,76 @@ async function callBillingUpdate(input: {
   }
 }
 
+function buildPayload(
+  eventType: string,
+  data: UnknownRecord,
+): BillingUpdatePayload | null {
+  const userId = extractUserId(data);
+  if (!userId) return null;
+
+  const productId = extractProductId(data);
+  const resolvedPlan = resolvePlanFromProductId(productId);
+  const customer_id = extractCustomerId(data);
+  const subscription_id = extractSubscriptionId(data);
+  const current_period_end_ms = extractCurrentPeriodEndMs(data);
+
+  if (eventType === "subscription.active") {
+    return {
+      userId,
+      plan: resolvedPlan,
+      billing_status: "active",
+      current_period_end_ms,
+      customer_id,
+      subscription_id,
+    };
+  }
+
+  if (eventType === "subscription.updated") {
+    return {
+      userId,
+      plan: resolvedPlan,
+      billing_status: asStr(data.status) || "active",
+      current_period_end_ms,
+      customer_id,
+      subscription_id,
+    };
+  }
+
+  if (eventType === "subscription.canceled") {
+    return {
+      userId,
+      plan: resolvedPlan,
+      billing_status: "canceled",
+      current_period_end_ms,
+      customer_id,
+      subscription_id,
+    };
+  }
+
+  if (eventType === "subscription.revoked") {
+    return {
+      userId,
+      plan: "public",
+      billing_status: "revoked",
+      current_period_end_ms: 0,
+      customer_id,
+      subscription_id,
+    };
+  }
+
+  if (eventType === "order.created") {
+    return {
+      userId,
+      plan: resolvedPlan === "public" ? undefined : resolvedPlan,
+      billing_status: asStr(data.status) || "pending",
+      customer_id,
+      subscription_id,
+    };
+  }
+
+  return null;
+}
+
 export const POST = Webhooks({
   webhookSecret: process.env.POLAR_WEBHOOK_SECRET!,
   onPayload: async (payload) => {
@@ -144,104 +207,46 @@ export const POST = Webhooks({
     const eventType = asStr(root.type) || "";
     const data = asObj(root.data);
 
-    // 1) subscription.active
-    if (eventType === "subscription.active") {
-      const userId = extractUserId(data);
-      if (!userId) {
-        console.warn("POLAR_WEBHOOK_SKIP_NO_USER_ID", eventType, data?.id);
+    const prepared = buildPayload(eventType, data);
+
+    console.log("POLAR_WEBHOOK_RECEIVED", {
+      eventType,
+      eventId: asStr(root.id),
+      userId: prepared?.userId ?? null,
+      plan: prepared?.plan ?? null,
+      billing_status: prepared?.billing_status ?? null,
+      customer_id: prepared?.customer_id ?? null,
+      subscription_id: prepared?.subscription_id ?? null,
+      current_period_end_ms: prepared?.current_period_end_ms ?? null,
+      product_id: extractProductId(data),
+    });
+
+    if (!prepared) {
+      if (
+        eventType === "subscription.active" ||
+        eventType === "subscription.updated" ||
+        eventType === "subscription.canceled" ||
+        eventType === "subscription.revoked" ||
+        eventType === "order.created"
+      ) {
+        console.warn("POLAR_WEBHOOK_SKIP_NO_USER_ID", {
+          eventType,
+          dataId: asStr(data.id),
+        });
         return;
       }
 
-      await callBillingUpdate({
-        userId,
-        plan: resolvePlanFromProductId(extractProductId(data)),
-        billing_status: "active",
-        current_period_end_ms: extractCurrentPeriodEndMs(data),
-        customer_id: extractCustomerId(data),
-        subscription_id: extractSubscriptionId(data),
-      });
+      console.log("POLAR_WEBHOOK_IGNORED", { eventType });
       return;
     }
 
-    // 2) subscription.updated
-    if (eventType === "subscription.updated") {
-      const userId = extractUserId(data);
-      if (!userId) {
-        console.warn("POLAR_WEBHOOK_SKIP_NO_USER_ID", eventType, data?.id);
-        return;
-      }
+    await callBillingUpdate(prepared);
 
-      await callBillingUpdate({
-        userId,
-        plan: resolvePlanFromProductId(extractProductId(data)),
-        billing_status: asStr(data.status) || "active",
-        current_period_end_ms: extractCurrentPeriodEndMs(data),
-        customer_id: extractCustomerId(data),
-        subscription_id: extractSubscriptionId(data),
-      });
-      return;
-    }
-
-    // 3) subscription.canceled
-    // 即 public には落とさず、status と period_end だけ更新
-    if (eventType === "subscription.canceled") {
-      const userId = extractUserId(data);
-      if (!userId) {
-        console.warn("POLAR_WEBHOOK_SKIP_NO_USER_ID", eventType, data?.id);
-        return;
-      }
-
-      await callBillingUpdate({
-        userId,
-        plan: resolvePlanFromProductId(extractProductId(data)),
-        billing_status: "canceled",
-        current_period_end_ms: extractCurrentPeriodEndMs(data),
-        customer_id: extractCustomerId(data),
-        subscription_id: extractSubscriptionId(data),
-      });
-      return;
-    }
-
-    // 4) subscription.revoked
-    // ここで public へ落とす
-    if (eventType === "subscription.revoked") {
-      const userId = extractUserId(data);
-      if (!userId) {
-        console.warn("POLAR_WEBHOOK_SKIP_NO_USER_ID", eventType, data?.id);
-        return;
-      }
-
-      await callBillingUpdate({
-        userId,
-        plan: "public",
-        billing_status: "revoked",
-        current_period_end_ms: 0,
-        customer_id: extractCustomerId(data),
-        subscription_id: extractSubscriptionId(data),
-      });
-      return;
-    }
-
-    // 5) order.created
-    // 補助同期。product/customer/subscription を保存したい時だけ反映
-    if (eventType === "order.created") {
-      const userId = extractUserId(data);
-      if (!userId) {
-        console.warn("POLAR_WEBHOOK_SKIP_NO_USER_ID", eventType, data?.id);
-        return;
-      }
-
-      const plan = resolvePlanFromProductId(extractProductId(data));
-      await callBillingUpdate({
-        userId,
-        plan: plan === "public" ? undefined : plan,
-        billing_status: asStr(data.status) || "pending",
-        customer_id: extractCustomerId(data),
-        subscription_id: extractSubscriptionId(data),
-      });
-      return;
-    }
-
-    console.log("POLAR_WEBHOOK_IGNORED", eventType);
+    console.log("POLAR_WEBHOOK_BILLING_UPDATE_OK", {
+      eventType,
+      userId: prepared.userId,
+      plan: prepared.plan ?? null,
+      billing_status: prepared.billing_status ?? null,
+    });
   },
 });
