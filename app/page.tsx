@@ -11,6 +11,14 @@ type RankingRow = {
   nextFundingMs?: number | null;
 };
 
+type SpreadPreviewRow = {
+  rank: number;
+  symbol: string;
+  exchange1: string;
+  exchange2: string;
+  spread: number;
+};
+
 type RankingApiResponse = {
   rows?: Array<Record<string, unknown>>;
   error?: string;
@@ -176,6 +184,40 @@ function normalizeRows(rows: Array<Record<string, unknown>>): RankingRow[] {
   return out;
 }
 
+function normalizeSpreadRows(rows: Array<Record<string, unknown>>): SpreadPreviewRow[] {
+  const out: SpreadPreviewRow[] = [];
+
+  rows.forEach((item, index) => {
+    const symbol = pickString(item.symbol) || pickString(item.name);
+    const exchange1 =
+      pickString(item.exchange1) ||
+      pickString(item.ex1) ||
+      pickString(item.left_exchange);
+    const exchange2 =
+      pickString(item.exchange2) ||
+      pickString(item.ex2) ||
+      pickString(item.right_exchange);
+
+    const spread =
+      pickNumber(item.spread_percent) ??
+      pickNumber(item.spread) ??
+      pickNumber(item.diff) ??
+      pickNumber(item.value);
+
+    if (!symbol || !exchange1 || !exchange2 || spread === null) return;
+
+    out.push({
+      rank: index + 1,
+      symbol,
+      exchange1,
+      exchange2,
+      spread,
+    });
+  });
+
+  return out;
+}
+
 function formatNextFunding(nextFundingMs?: number | null): string {
   if (!nextFundingMs || !Number.isFinite(nextFundingMs)) return "--";
 
@@ -190,11 +232,14 @@ function formatNextFunding(nextFundingMs?: number | null): string {
 
 function HomeRankingPreview() {
   const [rows, setRows] = useState<RankingRow[]>([]);
+  const [spreadRows, setSpreadRows] = useState<SpreadPreviewRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [spreadLoading, setSpreadLoading] = useState(true);
   const [error, setError] = useState("");
+  const [spreadError, setSpreadError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
-  async function load() {
+  async function loadRanking() {
     try {
       setLoading(true);
       setError("");
@@ -222,8 +267,35 @@ function HomeRankingPreview() {
     }
   }
 
+  async function loadSpread() {
+    try {
+      setSpreadLoading(true);
+      setSpreadError("");
+
+      const res = await fetch("/api/public-spread-preview", {
+        cache: "no-store",
+      });
+
+      const json: RankingApiResponse = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(json.error || json.message || `HTTP ${res.status}`);
+      }
+
+      const allRows = normalizeSpreadRows(Array.isArray(json.rows) ? json.rows : []);
+      setSpreadRows(allRows.slice(0, 3));
+    } catch (e) {
+      console.error("HOME_SPREAD_PREVIEW_FAIL", e);
+      setSpreadRows([]);
+      setSpreadError("スプレッドの取得に失敗しました。");
+    } finally {
+      setSpreadLoading(false);
+    }
+  }
+
   useEffect(() => {
-    load();
+    loadRanking();
+    loadSpread();
   }, []);
 
   const updatedLabel = useMemo(() => {
@@ -238,11 +310,11 @@ function HomeRankingPreview() {
   }, [updatedAt]);
 
   return (
-    <div className="relative overflow-hidden rounded-[32px] border border-cyan-400/15 bg-black/60 p-4 shadow-[0_0_80px_rgba(34,211,238,0.08)]">
+    <div className="relative w-full overflow-hidden rounded-[32px] border border-cyan-400/15 bg-black/60 p-5">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.14),transparent_35%),radial-gradient(circle_at_bottom_left,rgba(59,130,246,0.12),transparent_30%)]" />
 
       <div className="relative rounded-[28px] border border-white/10 bg-black/70 p-4">
-        <div className="flex items-center justify-between border-b border-white/10 pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
           <div>
             <div className="text-xs uppercase tracking-[0.22em] text-cyan-300/75">
               Live Ranking Preview
@@ -256,59 +328,129 @@ function HomeRankingPreview() {
           </div>
         </div>
 
-        <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="grid grid-cols-[44px_1fr_110px_110px_80px] items-center px-2 pb-3 text-xs uppercase tracking-[0.18em] text-white/40">
-            <div>Rank</div>
-            <div>Symbol</div>
-            <div>Exchange</div>
-            <div className="text-right">FR</div>
-            <div className="text-right">Next</div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-white/40">
+                  Funding Rate
+                </div>
+                <div className="mt-1 text-lg font-semibold text-white">Top 3</div>
+              </div>
+              <Link
+                href="/ranking"
+                className="text-sm font-semibold text-cyan-300 transition hover:text-cyan-200"
+              >
+                More
+              </Link>
+            </div>
+
+            {loading && (
+              <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-white/55">
+                読み込み中...
+              </div>
+            )}
+
+            {!loading && error && (
+              <div className="rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-8 text-center text-sm text-red-200">
+                {error}
+              </div>
+            )}
+
+            {!loading && !error && rows.length === 0 && (
+              <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-white/55">
+                表示できるデータがありません。
+              </div>
+            )}
+
+            {!loading && !error && rows.length > 0 && (
+              <div className="space-y-3">
+                {rows.map((row) => (
+                  <div
+                    key={`${row.rank}-${row.symbol}-${row.exchange}`}
+                    className="grid grid-cols-[28px_minmax(0,1fr)_72px] items-center gap-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm"
+                  >
+                    <div className="font-semibold text-white/70">{row.rank}</div>
+
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-white">{row.symbol}</div>
+                      <div className="truncate text-xs text-white/45">
+                        {row.exchange} ・ Next {formatNextFunding(row.nextFundingMs)}
+                      </div>
+                    </div>
+
+                    <div className="text-right font-semibold text-cyan-300">
+                      {row.fr.toFixed(4)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {loading && (
-            <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-white/55">
-              読み込み中...
-            </div>
-          )}
-
-          {!loading && error && (
-            <div className="rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-8 text-center text-sm text-red-200">
-              {error}
-            </div>
-          )}
-
-          {!loading && !error && rows.length === 0 && (
-            <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-white/55">
-              表示できるデータがありません。
-            </div>
-          )}
-
-          {!loading && !error && rows.length > 0 && (
-            <div className="space-y-3">
-              {rows.map((row) => (
-                <div
-                  key={`${row.rank}-${row.symbol}-${row.exchange}`}
-                  className="grid grid-cols-[44px_1fr_110px_110px_80px] items-center rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm"
-                >
-                  <div className="font-semibold text-white/70">{row.rank}</div>
-                  <div className="font-medium text-white">{row.symbol}</div>
-                  <div className="text-white/55">{row.exchange}</div>
-                  <div className="text-right font-semibold text-cyan-300">
-                    {row.fr.toFixed(4)}%
-                  </div>
-                  <div className="text-right text-white/65">
-                    {formatNextFunding(row.nextFundingMs)}
-                  </div>
+          <div className="min-w-0 rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] text-white/40">
+                  Spread Preview
                 </div>
-              ))}
+                <div className="mt-1 text-lg font-semibold text-white">Top 3</div>
+              </div>
+              <Link
+                href="/pricing"
+                className="text-sm font-semibold text-cyan-300 transition hover:text-cyan-200"
+              >
+                Unlock Pro
+              </Link>
             </div>
-          )}
+
+            {spreadLoading && (
+              <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-white/55">
+                読み込み中...
+              </div>
+            )}
+
+            {!spreadLoading && spreadError && (
+              <div className="rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-8 text-center text-sm text-red-200">
+                {spreadError}
+              </div>
+            )}
+
+            {!spreadLoading && !spreadError && spreadRows.length === 0 && (
+              <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-8 text-center text-sm text-white/55">
+                表示できるデータがありません。
+              </div>
+            )}
+
+            {!spreadLoading && !spreadError && spreadRows.length > 0 && (
+              <div className="space-y-3">
+                {spreadRows.map((row) => (
+                  <div
+                    key={`${row.rank}-${row.symbol}-${row.exchange1}-${row.exchange2}`}
+                    className="grid grid-cols-[28px_minmax(0,1fr)_72px] items-center gap-3 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm"
+                  >
+                    <div className="font-semibold text-white/70">{row.rank}</div>
+
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-white">{row.symbol}</div>
+                      <div className="truncate text-xs text-white/45">
+                        {row.exchange1}/{row.exchange2}
+                      </div>
+                    </div>
+
+                    <div className="text-right font-semibold text-cyan-300">
+                      {row.spread.toFixed(4)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <p className="mt-4 text-sm leading-6 text-white/55">
-          ここでは実際の公開ランキング上位のみを表示しています。
-          表示の中心は Funding Rate です。OI は内部ロジックで使っていても、
-          この画面では直接見せていません。
+          無料版では Funding Rate と Spread の上位のみを表示しています。詳細なスプレッド比較や会員向けランキングは
+          Pro / Advance で確認できます。
         </p>
       </div>
     </div>
@@ -320,7 +462,7 @@ export default function HomePage() {
     <main className="bg-black text-white">
       <section className="relative overflow-hidden border-b border-white/10">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.10),transparent_30%),radial-gradient(circle_at_top_right,rgba(34,211,238,0.16),transparent_30%),linear-gradient(to_bottom,rgba(255,255,255,0.02),transparent)]" />
-        <div className="mx-auto grid max-w-6xl gap-12 px-6 py-20 lg:grid-cols-[1.02fr_0.98fr] lg:items-center lg:py-24">
+        <div className="mx-auto grid max-w-7xl gap-12 px-6 py-20 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:py-24">
           <div className="relative">
             <div className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300/80">
               Funding Rate Analysis
@@ -518,9 +660,9 @@ export default function HomePage() {
               <br />
               必要なら会員プランへ
             </h2>
-            <p className="mt-4 text-sm leading-7 text-white/65 md:text-base">
-              無理に最初から全部使う必要はありません。まずはランキングの見やすさを確認し、
-              必要になったら Pro や Advance へ進める流れにしています。
+            <p className="mt-4 text-sm leading-7 text-white/70 md:text-base">
+              公開版では Funding Rate の上位を確認できます。より詳細な比較や会員向けランキング、
+              ADV シグナルの確認が必要になったら Pro / Advance に進めます。
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -532,9 +674,9 @@ export default function HomePage() {
               </Link>
               <Link
                 href="/pricing"
-                className="inline-flex items-center rounded-2xl border border-white/10 bg-white/[0.05] px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08]"
+                className="inline-flex items-center rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.10]"
               >
-                料金プランを見る
+                プランを見る
               </Link>
             </div>
           </div>

@@ -1,25 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  getApiBase,
-  getBackendToken,
-  getSessionUser,
-  hasRequiredPlan,
-} from "@/lib/server-auth";
+
+const API_BASE = process.env.FRNOW_API_BASE || "https://api.frnow.io";
+const ALLOWED_EXCHANGES = ["binance", "bybit", "bitget", "mexc", "bingx"];
 
 type RawRow = Record<string, unknown>;
 
-type DoiRow = {
+type DoiPreviewRow = {
   rank: number;
   symbol: string;
   exchange: string;
   doi: number;
   absDoi: number;
-  direction: string;
+  direction: "up" | "down" | "flat";
   fr?: number | null;
-  absFr: number;
-  combinedScore: number;
   nextFundingMs?: number | null;
 };
+
+function parseEx(raw: string | null): string[] {
+  return String(raw || "")
+    .split(",")
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .filter((v) => ALLOWED_EXCHANGES.includes(v));
+}
 
 function pickNumber(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -42,14 +46,6 @@ function normalizeRows(json: unknown): RawRow[] {
     if (Array.isArray(obj.data)) return obj.data as RawRow[];
   }
   return [];
-}
-
-function parseEx(raw: string | null): string[] {
-  return String(raw || "")
-    .split(",")
-    .map((v) => v.trim().toLowerCase())
-    .filter(Boolean)
-    .filter((v, i, arr) => arr.indexOf(v) === i);
 }
 
 function readFr(row: RawRow): number | null {
@@ -78,9 +74,7 @@ function readDoi(row: RawRow, window: "1m" | "5m"): number | null {
       pickNumber(row.doi1_percent) ??
       pickNumber(row.doi1) ??
       pickNumber(row.oi1_percent) ??
-      pickNumber(row.oi1) ??
-      pickNumber(row.doi_percent) ??
-      pickNumber(row.doi)
+      pickNumber(row.oi1)
     );
   }
 
@@ -88,41 +82,22 @@ function readDoi(row: RawRow, window: "1m" | "5m"): number | null {
     pickNumber(row.doi5_percent) ??
     pickNumber(row.doi5) ??
     pickNumber(row.oi5_percent) ??
-    pickNumber(row.oi5) ??
-    pickNumber(row.doi_percent) ??
-    pickNumber(row.doi)
+    pickNumber(row.oi5)
   );
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const token = await getBackendToken();
-    if (!token) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-
-    const sessionUser = await getSessionUser();
-    if (!sessionUser.loggedIn) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
-
-    if (!hasRequiredPlan(sessionUser.plan, ["pro", "advance"])) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
-    }
-
     const ex = parseEx(request.nextUrl.searchParams.get("ex"));
     const windowParam = (request.nextUrl.searchParams.get("window") || "5m")
       .trim()
       .toLowerCase();
-    const sortParam = (request.nextUrl.searchParams.get("sort") || "doi")
-      .trim()
-      .toLowerCase();
+    const limitParam = Number(request.nextUrl.searchParams.get("limit") || 3);
 
     const window: "1m" | "5m" = windowParam === "1m" ? "1m" : "5m";
-    const sortMode: "doi" | "combined" =
-      sortParam === "combined" ? "combined" : "doi";
+    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(20, limitParam)) : 3;
 
-    const upstreamUrl = new URL("/api/current", getApiBase());
+    const upstreamUrl = new URL("/api/current", API_BASE);
     if (ex.length > 0) {
       upstreamUrl.searchParams.set("ex", ex.join(","));
     }
@@ -130,7 +105,6 @@ export async function GET(request: NextRequest) {
     const upstream = await fetch(upstreamUrl.toString(), {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${token}`,
         Accept: "application/json",
       },
       cache: "no-store",
@@ -153,7 +127,7 @@ export async function GET(request: NextRequest) {
     const payload = text ? JSON.parse(text) : null;
     const rows = normalizeRows(payload);
 
-    const doiRows: DoiRow[] = [];
+    const doiRows: DoiPreviewRow[] = [];
 
     for (const row of rows) {
       const symbol = pickString(row.symbol) || pickString(row.name);
@@ -162,37 +136,24 @@ export async function GET(request: NextRequest) {
 
       if (!symbol || !exchange || doi === null) continue;
 
-      const fr = readFr(row);
-      const absFr = Math.abs(fr ?? 0);
-      const absDoi = Math.abs(doi);
-      const combinedScore = absDoi * absFr;
-
       doiRows.push({
         rank: 0,
         symbol,
         exchange,
         doi,
-        absDoi,
+        absDoi: Math.abs(doi),
         direction: doi > 0 ? "up" : doi < 0 ? "down" : "flat",
-        fr,
-        absFr,
-        combinedScore,
+        fr: readFr(row),
         nextFundingMs: readNextFundingMs(row),
       });
     }
 
-    if (sortMode === "combined") {
-      doiRows.sort((a, b) => {
-        if (b.combinedScore !== a.combinedScore) {
-          return b.combinedScore - a.combinedScore;
-        }
-        return b.absDoi - a.absDoi;
-      });
-    } else {
-      doiRows.sort((a, b) => b.absDoi - a.absDoi);
-    }
+    doiRows.sort((a, b) => {
+      if (b.absDoi !== a.absDoi) return b.absDoi - a.absDoi;
+      return Math.abs(b.fr ?? 0) - Math.abs(a.fr ?? 0);
+    });
 
-    const ranked = doiRows.map((row, index) => ({
+    const ranked = doiRows.slice(0, limit).map((row, index) => ({
       ...row,
       rank: index + 1,
     }));
@@ -201,7 +162,7 @@ export async function GET(request: NextRequest) {
       {
         rows: ranked,
         window,
-        sort: sortMode,
+        limit,
       },
       {
         status: 200,
@@ -211,7 +172,7 @@ export async function GET(request: NextRequest) {
       },
     );
   } catch (error) {
-    console.error("PRO_DOI_RANKING_PROXY_ERROR", error);
-    return NextResponse.json({ error: "internal_error" }, { status: 500 });
+    console.error("PUBLIC_DOI_PREVIEW_PROXY_ERROR", error);
+    return NextResponse.json({ rows: [], error: "internal_error" }, { status: 500 });
   }
 }

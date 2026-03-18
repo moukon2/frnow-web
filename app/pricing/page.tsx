@@ -24,15 +24,16 @@ const plans = [
     price: "¥0",
     period: "/ month",
     description:
-      "まずは公開ランキングを見たい人向け。FRNow の基本機能を試すための入口プランです。",
+      "まずは公開版で市場の雰囲気を見たい人向け。FR Top3 と公開Spread previewから FRNow を試せる入口プランです。",
     ctaHref: "/ranking",
     ctaLabel: "公開ランキングを見る",
     featured: false,
     features: [
-      "公開ランキング",
-      "基本的な FR 確認",
+      "公開 FR ranking",
+      "FR Top3 preview",
+      "公開 Spread Top3 preview",
       "ログイン不要で閲覧可能",
-      "BingX を含む公開データ確認",
+      "Binance / Bybit / Bitget / MEXC / BingX 対応",
     ],
   },
   {
@@ -42,16 +43,16 @@ const plans = [
     price: PRICING.pro.priceLabel,
     period: PRICING.pro.periodLabel,
     description:
-      "ランキングをより深く使いたい人向け。複数取引所比較や spread ranking を使いたい場合の標準プランです。",
+      "ランキングを深く使いたい人向け。FR 全体、Spread ranking、ΔOI ranking を会員画面でまとめて使う標準プランです。",
     checkoutPlan: "pro" as const,
     ctaLabel: "Proを開始",
     featured: false,
     features: [
-      "Pro ranking",
-      "Spread ranking",
       "会員向けランキング画面 /app/ranking",
+      "FR full ranking",
+      "Spread full ranking",
+      "ΔOI ranking",
       "複数取引所の比較表示",
-      "Binance / Bybit / Bitget / MEXC / BingX 対応",
     ],
   },
   {
@@ -61,7 +62,7 @@ const plans = [
     price: PRICING.advance.priceLabel,
     period: PRICING.advance.periodLabel,
     description:
-      "FR + OI シグナルと、その outcome を追うための上位プラン。ADV signals と dashboard を使う人向けです。",
+      "FR + OI シグナルと outcome dashboard まで使いたい人向け。ADV signals と /app/adv を利用する上位プランです。",
     checkoutPlan: "advance" as const,
     ctaLabel: "Advanceを開始",
     featured: true,
@@ -71,26 +72,30 @@ const plans = [
       "ADV dashboard (/app/adv)",
       "Cumulative return / drawdown",
       "Win rate / PF / outcome log",
-      "BingX を含む横断監視",
+      "今後の通知連携UI対応",
     ],
   },
 ];
 
 const compareRows = [
-  { label: "公開ランキング", free: true, pro: true, advance: true },
-  { label: "BingX を含む監視対象", free: true, pro: true, advance: true },
-  { label: "Pro ranking", free: false, pro: true, advance: true },
-  { label: "Spread ranking", free: false, pro: true, advance: true },
+  { label: "FR Top3 preview", free: true, pro: true, advance: true },
+  { label: "Spread Top3 preview", free: true, pro: true, advance: true },
+  { label: "FR full ranking", free: false, pro: true, advance: true },
+  { label: "Spread full ranking", free: false, pro: true, advance: true },
+  { label: "ΔOI ranking", free: false, pro: true, advance: true },
   { label: "ADV signals", free: false, pro: false, advance: true },
   { label: "ADV dashboard", free: false, pro: false, advance: true },
   { label: "Outcome tracking", free: false, pro: false, advance: true },
-  { label: "Cumulative return / drawdown", free: false, pro: false, advance: true },
 ];
 
 const faqs = [
   {
     q: "FRNow は自動売買ですか？",
-    a: "いいえ。FRNow はエントリー / exit の判断材料となるシグナルと、その結果確認のためのツールです。自動売買前提ではありません。",
+    a: "いいえ。FRNow はエントリー / exit の判断材料となるランキングやシグナルを確認するためのツールです。自動売買前提ではありません。",
+  },
+  {
+    q: "Free ではどこまで見れますか？",
+    a: "公開版では FR Top3 と Spread Top3 preview を中心に確認できます。ランキング全体や ΔOI は Pro 以上で利用できます。",
   },
   {
     q: "Advance の dashboard に表示される数値は実現損益ですか？",
@@ -99,10 +104,6 @@ const faqs = [
   {
     q: "どのプランから始めるべきですか？",
     a: "ランキング中心なら Pro、ADV signals と実績ダッシュボードまで使いたいなら Advance がおすすめです。",
-  },
-  {
-    q: "対応取引所は？",
-    a: "現在は Binance、Bybit、Bitget、MEXC、BingX の先物データを前提にしています。",
   },
   {
     q: "途中で解約等はできますか？",
@@ -135,9 +136,7 @@ function SectionTitle({
       <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-5xl">
         {title}
       </h2>
-      {desc ? (
-        <p className="mt-4 text-sm leading-7 text-white/65 md:text-base">{desc}</p>
-      ) : null}
+      {desc ? <p className="mt-4 text-sm leading-7 text-white/65 md:text-base">{desc}</p> : null}
     </div>
   );
 }
@@ -275,9 +274,7 @@ export default function PricingPage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(
-          data?.error || data?.message || "checkout session creation failed",
-        );
+        throw new Error(data?.error || data?.message || "checkout session creation failed");
       }
 
       if (!data?.url || typeof data.url !== "string") {
@@ -287,9 +284,7 @@ export default function PricingPage() {
       window.location.href = data.url;
     } catch (error) {
       console.error("CHECKOUT_START_FAIL", error);
-      setCheckoutError(
-        "Checkout の開始に失敗しました。少し時間を置いて再度お試しください。",
-      );
+      setCheckoutError("Checkout の開始に失敗しました。少し時間を置いて再度お試しください。");
     } finally {
       setLoadingPlan(null);
     }
@@ -301,8 +296,8 @@ export default function PricingPage() {
         <div className="mx-auto max-w-6xl px-6 py-20">
           <SectionTitle
             eyebrow="FRNow Pricing"
-            title="使い方に合わせて、Free / Pro / Advance を選ぶ。"
-            desc="公開ランキングだけを見るなら Free。ランキングを深く使うなら Pro。ADV signals と outcome dashboard まで使うなら Advance。BingX を含む複数取引所の監視にも対応しています。"
+            title="公開 preview から始めて、必要に応じて Pro / Advance に広げる。"
+            desc="Free では FR Top3 と Spread Top3 preview。ランキング全体と ΔOI を使うなら Pro。ADV signals と outcome dashboard まで使うなら Advance です。"
           />
 
           <div className="mt-8 flex flex-wrap gap-3">
@@ -322,8 +317,8 @@ export default function PricingPage() {
 
           <div className="mt-8 flex flex-wrap gap-2 text-xs text-white/45">
             {[
-              "Manual trading support",
-              "Ranking + ADV dashboard",
+              "FR Top3 + Spread Top3 preview",
+              "Ranking + ΔOI + ADV dashboard",
               "Binance / Bybit / Bitget / MEXC / BingX",
               "Not an auto-trading bot",
             ].map((item) => (
@@ -370,7 +365,7 @@ export default function PricingPage() {
         <SectionTitle
           eyebrow="Comparison"
           title="機能比較"
-          desc="まずは Free で雰囲気を確認し、ランキングを深く見たいなら Pro、ADV シグナルまで見たいなら Advance という分け方が分かりやすいです。"
+          desc="Free は preview、Pro はランキング分析、Advance はシグナル確認という役割分けです。"
         />
 
         <div className="mt-10 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04]">
@@ -402,38 +397,26 @@ export default function PricingPage() {
       <section className="mx-auto max-w-6xl px-6 py-20">
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300/80">
-              Free
-            </div>
-            <h3 className="mt-3 text-xl font-semibold text-white">
-              まずは公開ランキングを見たい人向け
-            </h3>
+            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300/80">Free</div>
+            <h3 className="mt-3 text-xl font-semibold text-white">まずは公開 preview を見たい人向け</h3>
             <p className="mt-3 text-sm leading-7 text-white/65">
-              FRNow の入口として使うプランです。BingX を含む市場の雰囲気確認にも向いています。
+              FRNow の入口として使うプランです。Top3 preview で市場の偏りを軽く確認し、必要なら上位プランへ進めます。
             </p>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6">
-            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300/80">
-              Pro
-            </div>
-            <h3 className="mt-3 text-xl font-semibold text-white">
-              ランキングと spread ranking を使いたい人向け
-            </h3>
+            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300/80">Pro</div>
+            <h3 className="mt-3 text-xl font-semibold text-white">ランキングと Spread / ΔOI を使いたい人向け</h3>
             <p className="mt-3 text-sm leading-7 text-white/65">
-              取引所間の差や偏りを見たい人向けです。Binance / Bybit / Bitget / MEXC / BingX の比較に向いています。
+              複数取引所の差や偏りを見たい人向けです。会員向けランキング画面で分析を深められます。
             </p>
           </div>
 
           <div className="rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.08] p-6 shadow-[0_0_40px_rgba(34,211,238,0.06)]">
-            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">
-              Advance
-            </div>
-            <h3 className="mt-3 text-xl font-semibold text-white">
-              ADV signals と /app/adv まで使いたい人向け
-            </h3>
+            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Advance</div>
+            <h3 className="mt-3 text-xl font-semibold text-white">ADV signals と /app/adv まで使いたい人向け</h3>
             <p className="mt-3 text-sm leading-7 text-white/70">
-              Funding Rate と Open Interest の偏りをもとに、BingX を含む横断監視と ADV ダッシュボードまで確認したい人に向いています。
+              Funding Rate と Open Interest の偏りをもとに、ADV ダッシュボードまで確認したい人に向いています。
             </p>
           </div>
         </div>
@@ -458,11 +441,9 @@ export default function PricingPage() {
       <section className="mx-auto max-w-6xl px-6 pb-24">
         <div className="overflow-hidden rounded-[36px] border border-cyan-400/15 bg-[linear-gradient(135deg,rgba(34,211,238,0.10),rgba(255,255,255,0.03))] p-8 md:p-10">
           <div className="max-w-3xl">
-            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300/80">
-              Start with FRNow
-            </div>
+            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-300/80">Start with FRNow</div>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
-              ランキングから始めて、必要なら Advance まで広げる。
+              公開 preview から始めて、必要な深さだけ広げる。
             </h2>
             <p className="mt-4 text-sm leading-7 text-white/65 md:text-base">
               Free / Pro / Advance のどれを選んでも、FRNow の中心は FR と OI の偏りを見て裁量判断に使うことです。

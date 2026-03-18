@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import PlanGateCard from "@/components/access/PlanGateCard";
 import Link from "next/link";
+import PlanGateCard from "@/components/access/PlanGateCard";
 import AdvRealtimeTradesTable, {
   type AdvTradeRow,
 } from "@/components/AdvRealtimeTradesTable";
@@ -131,6 +131,13 @@ function badgeClassForPf(v: number | null | undefined): string {
   return "border border-red-400/20 bg-red-400/10 text-red-200";
 }
 
+function insightTone(v: number | null | undefined): string {
+  if (typeof v !== "number" || !Number.isFinite(v)) return "text-white/75";
+  if (v > 0) return "text-cyan-200";
+  if (v < 0) return "text-red-200";
+  return "text-white/80";
+}
+
 function MetricTile({
   label,
   value,
@@ -151,14 +158,33 @@ function MetricTile({
   );
 }
 
+function InsightCard({
+  title,
+  body,
+  tone = "text-white/80",
+}: {
+  title: string;
+  body: string;
+  tone?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">{title}</div>
+      <div className={`mt-2 text-sm leading-6 ${tone}`}>{body}</div>
+    </div>
+  );
+}
+
 function BreakdownCards({
   title,
   rows,
   showProfitFactor = false,
+  gridClassName = "grid gap-3 sm:grid-cols-2 xl:grid-cols-3",
 }: {
   title: string;
   rows: BreakdownRow[];
   showProfitFactor?: boolean;
+  gridClassName?: string;
 }) {
   return (
     <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
@@ -172,24 +198,35 @@ function BreakdownCards({
           データがありません
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className={gridClassName}>
           {rows.map((row) => (
             <div
               key={`${title}-${row.key}`}
-              className="rounded-2xl border border-white/10 bg-black/20 p-4"
+              className="min-w-0 rounded-2xl border border-white/10 bg-black/20 p-4"
             >
-              <div className="text-sm font-semibold text-white">{row.label}</div>
+              <div className="min-w-0 text-[13px] font-semibold leading-5 text-white break-words">
+                {row.label}
+              </div>
+
               <div className="mt-1 text-xs text-white/45">{row.trades} trades</div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                <span className={`rounded-full px-3 py-1 text-xs ${badgeClassForBps(row.avg_ret_bps)}`}>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs ${badgeClassForBps(row.avg_ret_bps)}`}
+                >
                   {fmtBps(row.avg_ret_bps)}
                 </span>
+
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/75">
                   WR {fmtPct(row.win_rate)}
                 </span>
+
                 {showProfitFactor ? (
-                  <span className={`rounded-full px-3 py-1 text-xs ${badgeClassForPf(row.profit_factor)}`}>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs ${badgeClassForPf(
+                      row.profit_factor,
+                    )}`}
+                  >
                     PF {fmtNum(row.profit_factor, 2)}
                   </span>
                 ) : null}
@@ -226,6 +263,7 @@ export default function AppAdvPage() {
   const [equityCurve, setEquityCurve] = useState<PerformancePoint[]>([]);
   const [drawdownCurve, setDrawdownCurve] = useState<PerformancePoint[]>([]);
   const [byExchange, setByExchange] = useState<BreakdownRow[]>([]);
+  const [bySide, setBySide] = useState<BreakdownRow[]>([]);
   const [byCloseReason, setByCloseReason] = useState<BreakdownRow[]>([]);
   const [recentTrades, setRecentTrades] = useState<AdvTradeRow[]>([]);
 
@@ -349,6 +387,7 @@ export default function AppAdvPage() {
       setEquityCurve(Array.isArray(json.equity_curve) ? json.equity_curve : []);
       setDrawdownCurve(Array.isArray(json.drawdown_curve) ? json.drawdown_curve : []);
       setByExchange(Array.isArray(json.by_exchange) ? json.by_exchange : []);
+      setBySide(Array.isArray(json.by_side) ? json.by_side : []);
       setByCloseReason(Array.isArray(json.by_close_reason) ? json.by_close_reason : []);
       setRecentTrades(Array.isArray(json.recent_trades) ? json.recent_trades : []);
       setLastUpdated(new Date());
@@ -386,6 +425,48 @@ export default function AppAdvPage() {
         ? summary.ret_30d_bps
         : summary.avg_ret_bps;
 
+  const bestExchange = useMemo(() => {
+    return [...byExchange]
+      .filter((row) => row.trades > 0)
+      .sort((a, b) => (b.avg_ret_bps ?? -Infinity) - (a.avg_ret_bps ?? -Infinity))[0];
+  }, [byExchange]);
+
+  const mostUsedCloseReason = useMemo(() => {
+    return [...byCloseReason].sort((a, b) => b.trades - a.trades)[0];
+  }, [byCloseReason]);
+
+  const bestSide = useMemo(() => {
+    return [...bySide]
+      .filter((row) => row.trades > 0)
+      .sort((a, b) => (b.avg_ret_bps ?? -Infinity) - (a.avg_ret_bps ?? -Infinity))[0];
+  }, [bySide]);
+
+  const insightCards = useMemo(() => {
+    return [
+      {
+        title: "Best Exchange",
+        body: bestExchange
+          ? `${bestExchange.label} が ${fmtBps(bestExchange.avg_ret_bps)} / WR ${fmtPct(bestExchange.win_rate)} / ${bestExchange.trades} trades`
+          : "まだ比較できる取引所データがありません。",
+        tone: insightTone(bestExchange?.avg_ret_bps),
+      },
+      {
+        title: "Best Side",
+        body: bestSide
+          ? `${bestSide.label.toUpperCase()} が ${fmtBps(bestSide.avg_ret_bps)} / WR ${fmtPct(bestSide.win_rate)} / ${bestSide.trades} trades`
+          : "LONG / SHORT の比較データがまだありません。",
+        tone: insightTone(bestSide?.avg_ret_bps),
+      },
+      {
+        title: "Main Close Reason",
+        body: mostUsedCloseReason
+          ? `${mostUsedCloseReason.label} が最多で ${mostUsedCloseReason.trades} trades。平均 ${fmtBps(mostUsedCloseReason.avg_ret_bps)}。`
+          : "close reason の集計データがまだありません。",
+        tone: insightTone(mostUsedCloseReason?.avg_ret_bps),
+      },
+    ];
+  }, [bestExchange, bestSide, mostUsedCloseReason]);
+
   return (
     <main className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-7xl px-4 py-6 md:px-6">
@@ -394,15 +475,15 @@ export default function AppAdvPage() {
             <div className="text-[11px] uppercase tracking-[0.25em] text-cyan-300/80">
               Advance Only
             </div>
-            <h1 className="mt-1 text-2xl font-semibold md:text-3xl">ADV Dashboard</h1>
+            <h1 className="mt-1 text-2xl font-semibold md:text-3xl">ADV Stats Dashboard</h1>
             <p className="mt-1 text-sm text-white/55">
-              記録済みシグナル実績を確認
+              記録済みシグナル実績・累積推移・直近アウトカムを確認
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 text-sm text-white/55">
             <span>Updated {updatedLabel}</span>
-            <span className="badge-plan-adv">ADV</span>
+            <span className="badge-plan-adv">{plan === "advance" ? "ADV" : "PLAN"}</span>
 
             <Link href="/app/billing" className="btn-secondary-soft">
               Billing
@@ -528,33 +609,47 @@ export default function AppAdvPage() {
                 label={period === "7d" ? "7D Return" : period === "30d" ? "30D Return" : "Avg Ret"}
                 value={fmtBps(heroReturn)}
                 valueClassName={toneClassForBps(heroReturn)}
+                sub="ret_bps based"
               />
               <MetricTile
                 label="Drawdown"
                 value={fmtBps(summary.max_drawdown_bps)}
                 valueClassName={toneClassForBps(summary.max_drawdown_bps)}
+                sub="max pullback"
               />
-              <MetricTile label="Trades" value={String(summary.total_trades ?? 0)} />
+              <MetricTile
+                label="Trades"
+                value={String(summary.total_trades ?? 0)}
+                sub="closed outcomes"
+              />
               <MetricTile
                 label="Win Rate"
                 value={fmtPct(summary.win_rate)}
                 valueClassName={toneClassForBps(
                   typeof summary.win_rate === "number" ? summary.win_rate - 50 : null,
                 )}
+                sub="positive ret_bps ratio"
               />
               <MetricTile
                 label="PF"
                 value={fmtNum(summary.profit_factor, 2)}
                 valueClassName={toneClassForPf(summary.profit_factor)}
+                sub="gross win / gross loss"
               />
-              <MetricTile label="Avg Hold" value={fmtMin(summary.avg_hold_min)} />
+              <MetricTile label="Avg Hold" value={fmtMin(summary.avg_hold_min)} sub="average hold time" />
+            </div>
+
+            <div className="mb-4 grid gap-3 xl:grid-cols-3">
+              {insightCards.map((item) => (
+                <InsightCard key={item.title} title={item.title} body={item.body} tone={item.tone} />
+              ))}
             </div>
 
             <div className="mb-4 grid gap-4 xl:grid-cols-2">
               <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
                 <div className="mb-3">
                   <h2 className="text-base font-semibold text-white">Cumulative Return</h2>
-                  <p className="mt-1 text-xs text-white/45">ret_bps ベース</p>
+                  <p className="mt-1 text-xs text-white/45">ret_bps ベースの累積推移</p>
                 </div>
                 <AdvEquityChart data={equityCurve} />
               </section>
@@ -562,24 +657,42 @@ export default function AppAdvPage() {
               <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
                 <div className="mb-3">
                   <h2 className="text-base font-semibold text-white">Drawdown</h2>
-                  <p className="mt-1 text-xs text-white/45">最大下振れ</p>
+                  <p className="mt-1 text-xs text-white/45">ピークからの下振れ</p>
                 </div>
                 <AdvDrawdownChart data={drawdownCurve} />
               </section>
             </div>
 
-            <div className="mb-4 grid gap-4 xl:grid-cols-2">
-              <BreakdownCards title="By Exchange" rows={byExchange} showProfitFactor />
-              <BreakdownCards title="By Close Reason" rows={byCloseReason} showProfitFactor />
+            <div className="mb-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+              <BreakdownCards
+                title="By Exchange"
+                rows={byExchange}
+                showProfitFactor
+                gridClassName="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+              />
+
+              <BreakdownCards
+                title="By Side"
+                rows={bySide}
+                showProfitFactor
+                gridClassName="grid gap-3 sm:grid-cols-2 xl:grid-cols-2"
+              />
+            </div>
+
+            <div className="mb-4">
+              <BreakdownCards
+                title="By Close Reason"
+                rows={byCloseReason}
+                showProfitFactor
+                gridClassName="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
+              />
             </div>
 
             <section className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-base font-semibold text-white">Outcome Log</h2>
-                  <p className="mt-1 text-xs text-white/45">
-                    直近のクローズ済みトレード
-                  </p>
+                  <p className="mt-1 text-xs text-white/45">直近のクローズ済みトレード</p>
                 </div>
                 <div className="text-xs text-white/45">{recentTrades.length} rows</div>
               </div>

@@ -29,8 +29,7 @@ export default function Navbar() {
   const rankingHref =
     plan === "pro" || plan === "advance" ? "/app/ranking" : "/ranking";
 
-  const advHref =
-    plan === "advance" ? "/app/adv" : "/adv";
+  const advHref = plan === "advance" ? "/app/adv" : "/adv";
 
   async function handleLogout() {
     try {
@@ -67,6 +66,12 @@ export default function Navbar() {
             Contact
           </Link>
 
+          {loggedIn && (
+            <Link href="/app/integrations" className="hover:text-white transition">
+              Integrations
+            </Link>
+          )}
+
           {!loggedIn && (
             <Link
               href="/login"
@@ -88,11 +93,7 @@ export default function Navbar() {
           {loggedIn && (
             <>
               <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs uppercase tracking-[0.16em] text-white/60">
-                {plan === "advance"
-                  ? "Advance"
-                  : plan === "pro"
-                  ? "Pro"
-                  : "Public"}
+                {plan === "advance" ? "Advance" : plan === "pro" ? "Pro" : "Public"}
               </span>
 
               <button
